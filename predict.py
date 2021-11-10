@@ -75,8 +75,6 @@ if __name__ == '__main__':
         in_files = [os.path.join(args.in_dir, n) for n in names]
         out_files = [os.path.join(args.out_dir, n) for n in names]
 
-    print(out_files[0])
-
     net = UNet(n_channels=1, n_classes=2)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

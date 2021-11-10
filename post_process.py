@@ -4,7 +4,8 @@ import os
 import numpy as np
 import random
 from collections import defaultdict
-from mahotas.labeled import label
+# from mahotas.labeled import label
+from scipy.ndimage import label
 from PIL import Image
 
 
