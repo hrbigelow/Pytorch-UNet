@@ -81,6 +81,9 @@ def _mask_to_anno(dat):
             # close out the last region
             rls[pv].append(w - st)
 
+    assert all(len(rl) % 2 == 0 for rl in rls), \
+            'Odd number of runlength elements'
+
     rls = [list(zip(rl[::2], rl[1::2])) for rl in rls[1:]]
     return rls, h, w
 
@@ -107,7 +110,7 @@ def check_convert(dat):
 def gen_colored(mask):
     dat, labels = _gen_colored(mask)
     return Image.fromarray(dat, mode='RGB'), \
-            Image.fromarray(labels.astype(np.uint8), mode='L')
+            Image.fromarray(labels.astype(np.uint8) + 20, mode='L')
 
 
 def _gen_colored(mask):
@@ -192,7 +195,7 @@ if __name__ == '__main__':
 
     elif app == 'eval':
         gt_mask_dir, pred_mask_dir, out_file = sys.argv[2:]
-        run_lengths = defaultdict(lambda: {})
+        stats = defaultdict(lambda: {})
         for k, d in { 'gt': gt_mask_dir, 'pr': pred_mask_dir }.items():
             with os.scandir(d) as scan:
                 for mask in scan:
@@ -201,23 +204,37 @@ if __name__ == '__main__':
                     img_id = img_id.split('_')[0]
                     img_path = os.path.join(d, mask.name)
                     rls, h, w = mask_to_anno(img_path)
-                    run_lengths[img_id][k] = (rls, img_path)
+                    stats[img_id][k] = (rls, img_path)
+
+        scores = []
+
+        for img_id, d in stats.items():
+            print('processing ', img_id)
+            if 'gt' not in d or 'pr' not in d:
+                print(f'skipping {img_id}')
+                continue
+            gts, gt_path = d['gt']
+            prs, pr_path = d['pr']
+            precs = [precision(gts, prs, th) 
+                    for th in np.arange(0.5, 1.0, 0.05)]
+            avg_prec = sum(precs) / len(precs)
+
+            stats[img_id]['precs'] = precs
+            stats[img_id]['avg_prec'] = avg_prec
+
+            scores.append((avg_prec, img_id))
+
+        ids = [i for a, i in sorted(scores, key=lambda ai: ai[0], reverse=True)]
 
         with open(out_file, 'w') as fh:
             print('<html><body>', file=fh)
 
-            for img_id, d in run_lengths.items():
-                print('processing ', img_id)
-                if 'gt' not in d or 'pr' not in d:
-                    print(f'skipping {img_id}', file=fh)
-                    continue
-                gts, gt_path = d['gt']
-                prs, pr_path = d['pr']
-                precs = [precision(gts, prs, th) 
-                        for th in np.arange(0.5, 1.0, 0.05)]
-
-                avg_prec = sum(precs) / len(precs)
-                prec_str = ' '.join(f'{p:3.2f}' for p in precs)
+            for img_id in ids:
+                d = stats[img_id]
+                gt_path = d['gt'][1]
+                pr_path = d['pr'][1]
+                avg_prec = d['avg_prec']
+                prec_str = ' '.join(f'{p:3.2f}' for p in d['precs'])
                 print(f'<img src="{gt_path}" />', file=fh)
                 print(f'<img src="{pr_path}" />', file=fh)
                 print(f'<p>{prec_str}</p>', file=fh)

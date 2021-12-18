@@ -24,6 +24,7 @@ dir_checkpoint = Path('./checkpoints/')
 def train_net(net,
               dir_img,
               dir_mask,
+              ds_type,
               device,
               epochs: int = 5,
               batch_size: int = 1,
@@ -33,10 +34,10 @@ def train_net(net,
               img_scale: float = 0.5,
               amp: bool = False):
     # 1. Create dataset
-    try:
+    if ds_type == 'carvana':
         dataset = CarvanaDataset(dir_img, dir_mask, img_scale)
-    except (AssertionError, RuntimeError):
-        dataset = BasicDataset(dir_img, dir_mask, img_scale)
+    else:
+        dataset = BasicDataset(dir_img, dir_mask, img_scale, '_mask')
 
     # 2. Split into train / validation partitions
     n_val = int(len(dataset) * val_percent)
@@ -68,7 +69,8 @@ def train_net(net,
 
     # 4. Set up the optimizer, the loss, the learning rate scheduler and the loss scaling for AMP
     optimizer = optim.RMSprop(net.parameters(), lr=learning_rate, weight_decay=1e-8, momentum=0.9)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'max', patience=2)  # goal: maximize Dice score
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'max',
+            factor=0.8, patience=10)  # goal: maximize Dice score
     grad_scaler = torch.cuda.amp.GradScaler(enabled=amp)
     criterion = nn.CrossEntropyLoss()
     global_step = 0
@@ -149,6 +151,7 @@ def get_args():
     parser = argparse.ArgumentParser(description='Train the UNet on images and target masks')
     parser.add_argument('--dir-img', '-i', default='./data/imgs/', type=str, help='training image directory')
     parser.add_argument('--dir-mask', '-m', default='./data/masks/', type=str, help='Directory with mask images')
+    parser.add_argument('--ds-type', '-t', default='basic', type=str, help='Type of Dataset (carvana or basic)')
     parser.add_argument('--epochs', '-e', metavar='E', type=int, default=5, help='Number of epochs')
     parser.add_argument('--batch-size', '-b', dest='batch_size', metavar='B', type=int, default=1, help='Batch size')
     parser.add_argument('--learning-rate', '-l', metavar='LR', type=float, default=0.00001,
@@ -188,6 +191,7 @@ if __name__ == '__main__':
         train_net(net=net,
                   dir_img=args.dir_img,
                   dir_mask=args.dir_mask,
+                  ds_type=args.ds_type,
                   epochs=args.epochs,
                   batch_size=args.batch_size,
                   learning_rate=args.lr,

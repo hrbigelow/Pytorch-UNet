@@ -1,4 +1,5 @@
 import logging
+import os
 from os import listdir
 from os.path import splitext
 from pathlib import Path
@@ -11,19 +12,26 @@ from torch.utils.data import Dataset
 
 class BasicDataset(Dataset):
     def __init__(self, images_dir: str, masks_dir: str, scale: float = 1.0, mask_suffix: str = ''):
-        self.images_dir = Path(images_dir)
-        self.masks_dir = Path(masks_dir)
         assert 0 < scale <= 1, 'Scale must be between 0 and 1'
         self.scale = scale
         self.mask_suffix = mask_suffix
 
-        self.ids = [splitext(file)[0] for file in listdir(images_dir) if not file.startswith('.')]
-        if not self.ids:
-            raise RuntimeError(f'No input file found in {images_dir}, make sure you put your images there')
-        logging.info(f'Creating dataset with {len(self.ids)} examples')
+        self.images = sorted([os.path.join(images_dir, f) for f in
+            listdir(images_dir) if not f.startswith('.')])
+
+        self.masks = sorted([os.path.join(masks_dir, f) for f in
+            listdir(masks_dir) if not f.startswith('.')])
+
+        for i, m in zip(self.images, self.masks):
+            i = os.path.basename(i)
+            m = os.path.basename(m)
+            if (os.path.splitext(i)[0] + self.mask_suffix) != os.path.splitext(m)[0]:
+                raise Exception(f'Mismatched image and mask file: {i} vs {m}')
+
+        logging.info(f'Creating dataset with {len(self.images)} examples')
 
     def __len__(self):
-        return len(self.ids)
+        return len(self.images)
 
     @classmethod
     def preprocess(cls, pil_img, scale, is_mask):
@@ -54,14 +62,11 @@ class BasicDataset(Dataset):
             return Image.open(filename)
 
     def __getitem__(self, idx):
-        name = self.ids[idx]
-        mask_file = list(self.masks_dir.glob(name + self.mask_suffix + '.*'))
-        img_file = list(self.images_dir.glob(name + '.*'))
+        img_file = self.images[idx]
+        mask_file = self.masks[idx]
 
-        assert len(mask_file) == 1, f'Either no mask or multiple masks found for the ID {name}: {mask_file}'
-        assert len(img_file) == 1, f'Either no image or multiple images found for the ID {name}: {img_file}'
-        mask = self.load(mask_file[0])
-        img = self.load(img_file[0])
+        mask = self.load(mask_file)
+        img = self.load(img_file)
 
         assert img.size == mask.size, \
             'Image and mask {name} should be the same size, but are {img.size} and {mask.size}'
