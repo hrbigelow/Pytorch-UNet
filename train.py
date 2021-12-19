@@ -16,14 +16,11 @@ from utils.dice_score import dice_loss
 from evaluate import evaluate
 from unet import UNet
 
-# dir_img = Path('./data/imgs/')
-# dir_mask = Path('./data/masks/')
-dir_checkpoint = Path('./checkpoints/')
-
 
 def train_net(net,
               dir_img,
               dir_mask,
+              dir_ckpt,
               ds_type,
               device,
               epochs: int = 5,
@@ -124,13 +121,15 @@ def train_net(net,
                             histograms['Weights/' + tag] = wandb.Histogram(value.data.cpu())
                             histograms['Gradients/' + tag] = wandb.Histogram(value.grad.data.cpu())
 
-                        val_score = evaluate(net, val_loader, device)
-                        scheduler.step(val_score)
+                        val_dice_score, val_iou_score = evaluate(net, val_loader, device)
+                        scheduler.step(val_iou_score)
 
-                        logging.info('Validation Dice score: {}'.format(val_score))
+                        logging.info('Validation Dice score: {}'.format(val_dice_score))
+                        logging.info('Validation IOU score: {}'.format(val_iou_score))
                         experiment.log({
                             'learning rate': optimizer.param_groups[0]['lr'],
-                            'validation Dice': val_score,
+                            'validation Dice': val_dice_score,
+                            'validation IOU': val_iou_score,
                             'images': wandb.Image(images[0].cpu()),
                             'masks': {
                                 'true': wandb.Image(true_masks[0].float().cpu()),
@@ -142,8 +141,8 @@ def train_net(net,
                         })
 
         if save_checkpoint:
-            Path(dir_checkpoint).mkdir(parents=True, exist_ok=True)
-            torch.save(net.state_dict(), str(dir_checkpoint / 'checkpoint_epoch{}.pth'.format(epoch + 1)))
+            Path(dir_ckpt).mkdir(parents=True, exist_ok=True)
+            torch.save(net.state_dict(), str(dir_ckpt / 'checkpoint_epoch{}.pth'.format(epoch + 1)))
             logging.info(f'Checkpoint {epoch + 1} saved!')
 
 
@@ -151,6 +150,7 @@ def get_args():
     parser = argparse.ArgumentParser(description='Train the UNet on images and target masks')
     parser.add_argument('--dir-img', '-i', default='./data/imgs/', type=str, help='training image directory')
     parser.add_argument('--dir-mask', '-m', default='./data/masks/', type=str, help='Directory with mask images')
+    parser.add_argument('--dir-ckpt', '-c', default='./ckpt/', type=str, help='Checkpoint directory')
     parser.add_argument('--ds-type', '-t', default='basic', type=str, help='Type of Dataset (carvana or basic)')
     parser.add_argument('--epochs', '-e', metavar='E', type=int, default=5, help='Number of epochs')
     parser.add_argument('--batch-size', '-b', dest='batch_size', metavar='B', type=int, default=1, help='Batch size')
@@ -191,6 +191,7 @@ if __name__ == '__main__':
         train_net(net=net,
                   dir_img=args.dir_img,
                   dir_mask=args.dir_mask,
+                  dir_ckpt=args.dir_ckpt,
                   ds_type=args.ds_type,
                   epochs=args.epochs,
                   batch_size=args.batch_size,

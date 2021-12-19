@@ -50,6 +50,9 @@ def mask_to_anno(img_path):
     return _mask_to_anno(dat)
 
 
+# produce run-length encoding using 0-based pixel positions:
+# [(pos, ct), (pos, ct), ...]
+# where pos is the zero-based pixel position in a row-then-column ordering
 def _mask_to_anno(dat):
     h, w = dat.shape
 
@@ -97,8 +100,12 @@ def _anno_to_mask(rls, h, w):
     dat = np.zeros(h * w, dtype=np.uint8)
     for rl in rls:
         for pos, ct in rl:
-            dat[pos-1:pos-1+ct] = 255 
+            dat[pos:pos+ct+1] = 255 
     return dat.reshape(h, w)
+
+
+def print_run_lengths(rls):
+    return ' '.join(str(pos + 1) + ' ' + str(ct) for pos, ct in ent)
 
 
 def check_convert(dat):
@@ -161,6 +168,14 @@ def precision(act_rles, prd_rles, thresh):
     return tp / (tp + fp + fn)
 
 
+def iou_avg_score(mask_pred, mask_true):
+    mask_pred = (F.sigmoid(mask_pred) > 0.5).float()
+    pred_rls, ph, pw = _mask_to_anno(mask_pred)
+    true_rls, th, tw = _mask_to_anno(mask_true)
+    precs = [precision(gts, prs, th) for th in np.arange(0.5, 1.0, 0.05)]
+    avg_prec = sum(precs) / len(precs)
+    return avg_prec
+
 
 if __name__ == '__main__':
     app = sys.argv[1]
@@ -175,23 +190,32 @@ if __name__ == '__main__':
             img = a.img()
             img.save(out_dir + '/' + id + '_mask.gif')
 
-    elif app == 'rls':
-        mask_dir, out_dir, out_file = sys.argv[2:]
+    elif app == 'run_lengths':
+        mask_dir, out_file = sys.argv[2:]
         with open(out_file, 'w') as fh, os.scandir(mask_dir) as scan:
             print('id,predicted', file=fh)
-            for mask_file in scan:
-                img_id, _ = os.path.splitext(mask_file.name)
-                img_path = os.path.join(mask_dir, mask_file.name)
+            for mask_file in sorted(f.name for f in scan):
+                img_id, _ = os.path.splitext(mask_file)
+                img_path = os.path.join(mask_dir, mask_file)
                 rls, h, w = mask_to_anno(img_path)
-                mask_dat = _anno_to_mask(rls, h, w)
-                colored_img, label_img = gen_colored(mask_dat)
-                colored_img.save(os.path.join(out_dir, img_id + '_colored.png'))
-                label_img.save(os.path.join(out_dir, img_id + '_labels.png'))
 
                 for ent in rls:
-                    ent_str = ' '.join(str(pos) + ' ' + str(ct) for pos, ct in ent)
+                    ent_str = print_run_lengths(ent)
                     out = '%s,%s' % (img_id, ent_str)
                     print(out, file=fh)
+
+    elif app == 'color_images':
+        mask_dir, out_dir = sys.argv[2:]
+        with os.scandir(mask_dir) as scan:
+            for mask_file in sorted(f.name for f in scan):
+                img_id, _ = os.path.splitext(mask_file)
+                img_path = os.path.join(mask_dir, mask_file)
+                rls, h, w = mask_to_anno(img_path)
+                # this is redundant
+                mask_dat = _anno_to_mask(rls, h, w)
+                colored_img, label_img = gen_colored(mask_dat)
+                colored_img.save(os.path.join(out_dir, img_id + '.col.png'))
+
 
     elif app == 'eval':
         gt_mask_dir, pred_mask_dir, out_file = sys.argv[2:]
